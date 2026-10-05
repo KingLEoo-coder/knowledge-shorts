@@ -1,0 +1,200 @@
+[
+ {
+  "name": "intro",
+  "t": 0.0
+ },
+ {
+  "name": "pop",
+  "t": 0.7
+ },
+ {
+  "name": "sweep",
+  "t": 1.767
+ },
+ {
+  "name": "tick",
+  "t": 4.333
+ },
+ {
+  "name": "riser",
+  "t": 7.167,
+  "dur": 1.6
+ },
+ {
+  "name": "hit",
+  "t": 8.767
+ },
+ {
+  "name": "whoosh",
+  "t": 13.667
+ },
+ {
+  "name": "beat_in",
+  "t": 14.267
+ },
+ {
+  "name": "ticks",
+  "t": 16.233,
+  "n": 11,
+  "dur": 3.0
+ },
+ {
+  "name": "ticks_slow",
+  "t": 16.233,
+  "n": 2,
+  "dur": 3.0
+ },
+ {
+  "name": "tick",
+  "t": 25.4
+ },
+ {
+  "name": "tick",
+  "t": 27.867
+ },
+ {
+  "name": "ticks",
+  "t": 32.233,
+  "n": 10,
+  "dur": 1.0
+ },
+ {
+  "name": "whoosh",
+  "t": 35.8
+ },
+ {
+  "name": "tick",
+  "t": 38.867
+ },
+ {
+  "name": "riser",
+  "t": 43.467,
+  "dur": 3.0
+ },
+ {
+  "name": "hit_soft",
+  "t": 46.467
+ },
+ {
+  "name": "scan",
+  "t": 48.8,
+  "dur": 1.6
+ },
+ {
+  "name": "hit",
+  "t": 50.4
+ },
+ {
+  "name": "tick",
+  "t": 51.367
+ },
+ {
+  "name": "tick",
+  "t": 51.867
+ },
+ {
+  "name": "whoosh",
+  "t": 55.233
+ },
+ {
+  "name": "tick",
+  "t": 57.1
+ },
+ {
+  "name": "tick",
+  "t": 57.433
+ },
+ {
+  "name": "tick",
+  "t": 57.767
+ },
+ {
+  "name": "tick",
+  "t": 58.1
+ },
+ {
+  "name": "tick",
+  "t": 63.1
+ },
+ {
+  "name": "pop",
+  "t": 63.967
+ },
+ {
+  "name": "tick",
+  "t": 64.833
+ },
+ {
+  "name": "hit_soft",
+  "t": 66.467
+ },
+ {
+  "name": "whoosh",
+  "t": 69.333
+ },
+ {
+  "name": "riser",
+  "t": 72.3,
+  "dur": 0.9
+ },
+ {
+  "name": "tick",
+  "t": 73.2
+ },
+ {
+  "name": "riser",
+  "t": 74.567,
+  "dur": 0.9
+ },
+ {
+  "name": "tick",
+  "t": 75.467
+ },
+ {
+  "name": "riser",
+  "t": 76.833,
+  "dur": 0.9
+ },
+ {
+  "name": "tick",
+  "t": 77.733
+ },
+ {
+  "name": "stop",
+  "t": 80.567
+ },
+ {
+  "name": "hit",
+  "t": 81.567
+ },
+ {
+  "name": "beat_in",
+  "t": 84.7
+ },
+ {
+  "name": "tick",
+  "t": 85.9
+ },
+ {
+  "name": "ticks",
+  "t": 87.2,
+  "n": 7,
+  "dur": 1.0
+ },
+ {
+  "name": "pop",
+  "t": 92.933
+ },
+ {
+  "name": "hit",
+  "t": 94.833
+ },
+ {
+  "name": "outro",
+  "t": 98.4
+ },
+ {
+  "name": "end",
+  "t": 101.1
+ }
+]
