@@ -1,290 +1,107 @@
-"""用代码合成配乐和音效（无任何外部素材），按 marks.json 里的节拍对齐画面。
+"""混音：公有领域配乐 + 轻音效，按 marks.json 对齐画面。
 
-用法：python music.py marks.json music.wav
-需要 numpy、scipy。
+用法：python music.py marks.json track.mp3 music.wav [起始秒]
+配乐来自 FreePD（CC0 公有领域），见 README。音效只保留很轻的翻页/嗖声/提示音。
+需要 numpy、scipy、ffmpeg。
 """
 import json
+import subprocess
 import sys
 import wave
 
 import numpy as np
-from scipy.signal import butter, fftconvolve, sosfilt
+from scipy.signal import butter, sosfilt
 
 SR = 44100
-BPM = 84
-BEAT = 60 / BPM
 rng = np.random.default_rng(18)
 
 
-def note(name):
-    """'A3' → Hz"""
-    names = {"C": -9, "C#": -8, "D": -7, "D#": -6, "E": -5, "F": -4, "F#": -3,
-             "G": -2, "G#": -1, "A": 0, "A#": 1, "B": 2}
-    pitch, octave = name[:-1], int(name[-1])
-    return 440 * 2 ** ((names[pitch] + (octave - 4) * 12) / 12)
+def load(path, start, dur):
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(dur), "-i", path,
+                          "-ac", "2", "-ar", str(SR), "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(raw, np.float32).reshape(-1, 2).T.copy()
 
 
-def env(n, a, r, sustain=1.0):
-    e = np.ones(n) * sustain
-    na, nr = int(a * SR), int(r * SR)
-    na, nr = min(na, n), min(nr, n)
-    e[:na] = np.linspace(0, sustain, na)
-    if nr:
-        e[-nr:] *= np.linspace(1, 0, nr)
-    return e
-
-
-def lp(x, hz, order=2):
-    return sosfilt(butter(order, hz, "low", fs=SR, output="sos"), x)
-
-
-def hp(x, hz, order=2):
-    return sosfilt(butter(order, hz, "high", fs=SR, output="sos"), x)
-
-
-def bp(x, lo, hi, order=2):
-    return sosfilt(butter(order, [lo, hi], "band", fs=SR, output="sos"), x)
-
-
-def add(buf, sig, t, gain=1.0, pan=0.0):
-    i = int(t * SR)
-    if i >= buf.shape[1] or i + len(sig) <= 0:
-        return
-    if i < 0:
-        sig, i = sig[-i:], 0
-    sig = sig[: buf.shape[1] - i]
-    l, r = np.sqrt((1 - pan) / 2), np.sqrt((1 + pan) / 2)
-    buf[0, i:i + len(sig)] += sig * gain * l * 1.414
-    buf[1, i:i + len(sig)] += sig * gain * r * 1.414
-
-
-# ---------- 乐器 ----------
-def pad_voice(f, dur):
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    s = np.zeros(n)
-    for det in (-0.08, 0.0, 0.07):
-        ff = f * 2 ** (det / 12)
-        vib = 1 + 0.002 * np.sin(2 * np.pi * 4.5 * t + rng.uniform(0, 6))
-        for h, amp in ((1, 1.0), (2, 0.35), (3, 0.15)):
-            s += amp * np.sin(2 * np.pi * ff * h * vib * t + rng.uniform(0, 6))
-    s = lp(s, 900)
-    return s * env(n, 1.2, 1.2) * 0.05
-
-
-def pluck(f, dur=1.6):
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    s = np.zeros(n)
-    for h, amp in ((1, 1.0), (2, 0.5), (3, 0.22), (4, 0.12), (5, 0.06)):
-        fh = f * h * (1 + 0.0004 * h * h)  # 轻微非谐，像琴弦
-        s += amp * np.sin(2 * np.pi * fh * t) * np.exp(-t * (2.2 + 1.8 * h))
-    hammer = lp(rng.standard_normal(n), 3000) * np.exp(-t * 300) * 0.05
-    return (s + hammer) * env(n, 0.003, 0.08)
-
-
-def bass(f, dur):
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    s = np.tanh(1.6 * np.sin(2 * np.pi * f * t)) + 0.3 * np.sin(2 * np.pi * f / 2 * t)
-    return lp(s, 500) * env(n, 0.01, 0.12) * np.exp(-t * 1.2)
-
-
-def kick():
-    n = int(0.45 * SR)
-    t = np.arange(n) / SR
-    f = 45 + 95 * np.exp(-t * 28)
-    ph = 2 * np.pi * np.cumsum(f) / SR
-    return lp(np.sin(ph) * np.exp(-t * 8), 180)
-
-
-def clap():
-    n = int(0.25 * SR)
-    t = np.arange(n) / SR
-    s = bp(rng.standard_normal(n), 3000, 9000) * np.exp(-t * 30) * np.minimum(1, t / 0.01)
-    return s * 0.5
-
-
-def hat(open_=False):
-    n = int((0.18 if open_ else 0.05) * SR)
-    t = np.arange(n) / SR
-    return hp(rng.standard_normal(n), 7000) * np.exp(-t * (18 if open_ else 80)) * 0.5
-
-
-# ---------- 音效 ----------
-def sfx_impact(soft=False):
-    n = int(2.2 * SR)
-    t = np.arange(n) / SR
-    f = 32 + 90 * np.exp(-t * 9)
-    boom = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 2.2)
-    noise = lp(rng.standard_normal(n), 2500) * np.exp(-t * 9) * 0.5
-    shimmer = sum(np.sin(2 * np.pi * note(x) * t) for x in ("A5", "E6", "A6")) * np.exp(-t * 2.5) * 0.08
-    s = boom + noise + shimmer
-    return s * (0.5 if soft else 1.0)
-
-
-def sfx_riser(dur):
-    n = int(dur * SR)
-    t = np.arange(n) / SR
-    k = t / dur
-    noise = rng.standard_normal(n)
-    out = np.zeros(n)
-    seg = int(0.05 * SR)
-    for i in range(0, n, seg):  # 分段带通，中心频率逐段升高
-        c = 400 + 5000 * k[i] ** 2
-        out[i:i + seg] = bp(noise[i:i + seg + 0], c * 0.7, min(c * 1.4, 18000))[: len(out[i:i + seg])]
-    tone = np.sin(2 * np.pi * np.cumsum(200 + 700 * k ** 2) / SR) * 0.25
-    return (out * 0.6 + tone) * k ** 1.5
+def bp(x, lo, hi):
+    return sosfilt(butter(2, [lo, hi], "band", fs=SR, output="sos"), x)
 
 
 def sfx_whoosh():
-    n = int(0.6 * SR)
+    n = int(0.5 * SR)
     t = np.arange(n) / SR
-    s = bp(rng.standard_normal(n), 500, 4000) * np.sin(np.pi * t / 0.6) ** 2
-    return s * 0.7
+    return bp(rng.standard_normal(n), 800, 5000) * np.sin(np.pi * t / 0.5) ** 2 * 0.5
 
 
 def sfx_tick():
-    n = int(0.06 * SR)
+    n = int(0.05 * SR)
     t = np.arange(n) / SR
-    return np.sin(2 * np.pi * 1900 * t) * np.exp(-t * 90) * 0.6
+    return np.sin(2 * np.pi * 2200 * t) * np.exp(-t * 110) * 0.5
 
 
 def sfx_pop():
-    n = int(0.18 * SR)
+    n = int(0.15 * SR)
     t = np.arange(n) / SR
-    f = 500 + 500 * t / 0.18
-    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 25) * 0.8
+    return np.sin(2 * np.pi * np.cumsum(700 + 500 * t / 0.15) / SR) * np.exp(-t * 30) * 0.5
 
 
-def reverb(x, secs=1.8, mix=0.25):
-    n = int(secs * SR)
-    t = np.arange(n) / SR
-    ir = rng.standard_normal(n) * np.exp(-t * 3.5)
-    ir = lp(ir, 5000)
-    ir /= np.abs(ir).sum() ** 0.5 * 6
-    wet = fftconvolve(x, ir)[: len(x)]
-    return x * (1 - mix) + wet * mix
+def add(buf, sig, t, gain):
+    i = int(t * SR)
+    if i >= buf.shape[1]:
+        return
+    sig = sig[: buf.shape[1] - i]
+    buf[:, i:i + len(sig)] += sig * gain
 
 
-# ---------- 编曲 ----------
-CHORDS = [  # Am – F – C – G，每个和弦一小节（4 拍）
-    ("A2", ["A3", "C4", "E4", "A4"]),
-    ("F2", ["F3", "A3", "C4", "F4"]),
-    ("C3", ["G3", "C4", "E4", "G4"]),
-    ("G2", ["G3", "B3", "D4", "G4"]),
-]
-ARP = [0, 1, 2, 3, 2, 1, 2, 3]
-
-
-def main(marks_path, out_path):
+def main(marks_path, track, out_path, start=0.0):
     marks = json.load(open(marks_path))
-    end = next(m["t"] for m in marks if m["name"] == "end")
-    first_hit = next(m["t"] for m in marks if m["name"] == "hit")
-    stop = next(m["t"] for m in marks if m["name"] == "stop")
-    twist_hit = next(m["t"] for m in marks if m["name"] == "hit" and m["t"] > stop)
-    outro = next(m["t"] for m in marks if m["name"] == "outro")
+    t_of = lambda name: next(m["t"] for m in marks if m["name"] == name)
+    end = t_of("end")
     total = end + 0.3
     N = int(total * SR)
-    music = np.zeros((2, N))
-    drums = np.zeros((2, N))
+
+    music = load(track, start, total)
+    if music.shape[1] < N:
+        music = np.pad(music, ((0, 0), (0, N - music.shape[1])))
+    music = music[:, :N]
+
+    # 音量包络：开头淡入；“是不是有点慌？”之后压低到 25%，“别慌。”后恢复；结尾 3 秒淡出
+    gain = np.ones(N)
+    fi = int(1.0 * SR)
+    gain[:fi] = np.linspace(0, 1, fi)
+    stop = t_of("stop")
+    twist = next(m["t"] for m in marks if m["name"] == "hit" and m["t"] > stop)
+    a, b = int(stop * SR), int(twist * SR)
+    r = int(0.4 * SR)
+    gain[a:a + r] *= np.linspace(1, 0.25, r)
+    gain[a + r:b] *= 0.25
+    gain[b:b + 2 * r] *= np.linspace(0.25, 1, 2 * r)
+    fo = int(3.0 * SR)
+    gain[-fo:] *= np.linspace(1, 0, fo)
+    music *= gain
+
     sfx = np.zeros((2, N))
-
-    t0 = first_hit  # 节拍网格对齐到第一次 “18” 出现的瞬间
-    first_beat = -int(t0 / BEAT) - 1
-    last_beat = int((total - t0) / BEAT) + 1
-    for b in range(first_beat, last_beat):
-        t = t0 + b * BEAT
-        bar = b // 4
-        root, tones = CHORDS[bar % 4]
-        in_intro = t < first_hit
-        in_break = stop <= t < twist_hit + 4 * BEAT
-        in_outro = t >= outro
-
-        if b % 4 == 0 and t + 4 * BEAT > 0:  # 每小节起一组 pad
-            for x in tones:
-                add(music, pad_voice(note(x), 4 * BEAT + 0.8), t, gain=0.9 if not in_break else 0.6,
-                    pan=rng.uniform(-0.4, 0.4))
-        # 琶音：八分音符，高八度
-        for k in range(2):
-            tt = t + k * BEAT / 2
-            if tt < 0:
-                continue
-            idx = ARP[(b % 4) * 2 + k]
-            f = note(tones[idx]) * 2
-            g = 0.10 if in_intro else 0.13
-            if in_break:
-                g = 0.09
-            add(music, pluck(f), tt, gain=g, pan=(-0.35 if k == 0 else 0.35))
-        if in_intro or in_outro and t > outro + 2 * BEAT:
-            continue
-        if not in_break:
-            add(music, bass(note(root), BEAT * 0.95), t, gain=0.32)
-        # 鼓：拐点前半段只有底鼓，beat_in 之后全上
-        if in_break and t < twist_hit:
-            continue
-        light = in_break
-        if b % 2 == 0:
-            add(drums, kick(), t, gain=0.5 if not light else 0.3)
-        if b % 2 == 1 and t > 14.5 and not light:
-            add(drums, clap(), t, gain=0.12, pan=0.1)
-        if not light:
-            add(drums, hat(), t + BEAT / 2, gain=0.07, pan=0.3)
-            if b % 8 == 7:
-                pass
-
-    # 断点：stop → 第二次 hit 之间整体静音，制造“停顿”
-    fade_n = int(0.25 * SR)
-    a, b_ = int(stop * SR), int(twist_hit * SR)
-    for buf in (music, drums):
-        buf[:, a:a + fade_n] *= np.linspace(1, 0, fade_n)
-        buf[:, a + fade_n:b_] = 0
-    # 结尾淡出
-    o = int(outro * SR)
-    fade = np.ones(N)
-    fade[o:] = np.linspace(1, 0, N - o) ** 1.5
-    music *= fade
-    drums *= fade
-    # 开头淡入
-    fi = int(1.2 * SR)
-    music[:, :fi] *= np.linspace(0, 1, fi)
-
     for m in marks:
         t, name = m["t"], m["name"]
-        if name == "hit":
-            add(sfx, sfx_impact(), t, 0.75)
-        elif name == "hit_soft":
-            add(sfx, sfx_impact(soft=True), t, 0.6)
-        elif name == "riser":
-            d = m.get("dur", 1.5)
-            add(sfx, sfx_riser(d), t, 0.35)
-        elif name == "whoosh":
-            add(sfx, sfx_whoosh(), t - 0.05, 0.4)
+        if name == "whoosh":
+            add(sfx, sfx_whoosh(), t - 0.05, 0.25)
         elif name == "tick":
-            add(sfx, sfx_tick(), t, 0.35)
+            add(sfx, sfx_tick(), t, 0.25)
         elif name == "pop":
-            add(sfx, sfx_pop(), t, 0.4)
-        elif name == "scan":
-            add(sfx, sfx_riser(m["dur"]), t, 0.3)
+            add(sfx, sfx_pop(), t, 0.25)
         elif name in ("ticks", "ticks_slow"):
-            n, d = m["n"], m["dur"]
-            for i in range(n):
-                add(sfx, sfx_tick() * (0.7 if name == "ticks" else 1.0), t + d * (i + 1) / (n + 1) if name == "ticks_slow"
-                    else t + d * i / n, 0.3, pan=(-0.3 if name == "ticks_slow" else 0.3))
+            for i in range(m["n"]):
+                add(sfx, sfx_tick() * 0.6, t + m["dur"] * i / m["n"], 0.25)
 
-    music = np.stack([reverb(music[0], mix=0.3), reverb(music[1], mix=0.3)])
-    sfx = np.stack([reverb(sfx[0], mix=0.15), reverb(sfx[1], mix=0.15)])
-    mix = music * 0.9 + drums * 0.8 + sfx
-    mix = np.tanh(mix * 1.2) / np.tanh(1.2)  # 软限幅
-    mix /= np.abs(mix).max() / 0.89
+    mix = music * 0.85 + sfx
+    mix /= max(1.0, np.abs(mix).max() / 0.95)
     pcm = (mix.T * 32767).astype(np.int16)
     with wave.open(out_path, "wb") as w:
         w.setnchannels(2)
         w.setsampwidth(2)
         w.setframerate(SR)
         w.writeframes(pcm.tobytes())
-    print(f"wrote {out_path}: {total:.1f}s")
+    print(f"wrote {out_path}: {total:.1f}s from {track} @ {start}s")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4]) if len(sys.argv) > 4 else 0.0)
