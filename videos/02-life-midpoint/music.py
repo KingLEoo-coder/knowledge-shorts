@@ -11,7 +11,7 @@ import numpy as np
 from scipy.signal import butter, fftconvolve, sosfilt
 
 SR = 44100
-BPM = 96
+BPM = 84
 BEAT = 60 / BPM
 rng = np.random.default_rng(18)
 
@@ -63,19 +63,24 @@ def pad_voice(f, dur):
     n = int(dur * SR)
     t = np.arange(n) / SR
     s = np.zeros(n)
-    for det in (-0.12, 0.0, 0.11):
+    for det in (-0.08, 0.0, 0.07):
         ff = f * 2 ** (det / 12)
-        for h in range(1, 7):
-            s += np.sin(2 * np.pi * ff * h * t + rng.uniform(0, 6)) / h
-    s = lp(s, 1400)
-    return s * env(n, 0.6, 0.8) * 0.06
+        vib = 1 + 0.002 * np.sin(2 * np.pi * 4.5 * t + rng.uniform(0, 6))
+        for h, amp in ((1, 1.0), (2, 0.35), (3, 0.15)):
+            s += amp * np.sin(2 * np.pi * ff * h * vib * t + rng.uniform(0, 6))
+    s = lp(s, 900)
+    return s * env(n, 1.2, 1.2) * 0.05
 
 
-def pluck(f, dur=0.5):
+def pluck(f, dur=1.6):
     n = int(dur * SR)
     t = np.arange(n) / SR
-    s = np.sin(2 * np.pi * f * t) + 0.35 * np.sin(2 * np.pi * 2 * f * t) + 0.12 * np.sin(2 * np.pi * 3 * f * t)
-    return s * np.exp(-t * 7) * env(n, 0.004, 0.05)
+    s = np.zeros(n)
+    for h, amp in ((1, 1.0), (2, 0.5), (3, 0.22), (4, 0.12), (5, 0.06)):
+        fh = f * h * (1 + 0.0004 * h * h)  # 轻微非谐，像琴弦
+        s += amp * np.sin(2 * np.pi * fh * t) * np.exp(-t * (2.2 + 1.8 * h))
+    hammer = lp(rng.standard_normal(n), 3000) * np.exp(-t * 300) * 0.05
+    return (s + hammer) * env(n, 0.003, 0.08)
 
 
 def bass(f, dur):
@@ -90,14 +95,14 @@ def kick():
     t = np.arange(n) / SR
     f = 45 + 95 * np.exp(-t * 28)
     ph = 2 * np.pi * np.cumsum(f) / SR
-    return np.sin(ph) * np.exp(-t * 7) + 0.15 * rng.standard_normal(n) * np.exp(-t * 120)
+    return lp(np.sin(ph) * np.exp(-t * 8), 180)
 
 
 def clap():
     n = int(0.25 * SR)
     t = np.arange(n) / SR
-    s = bp(rng.standard_normal(n), 900, 3500) * np.exp(-t * 22)
-    return s * 0.8
+    s = bp(rng.standard_normal(n), 3000, 9000) * np.exp(-t * 30) * np.minimum(1, t / 0.01)
+    return s * 0.5
 
 
 def hat(open_=False):
@@ -220,13 +225,13 @@ def main(marks_path, out_path):
             continue
         light = in_break
         if b % 2 == 0:
-            add(drums, kick(), t, gain=0.55 if not light else 0.35)
+            add(drums, kick(), t, gain=0.5 if not light else 0.3)
         if b % 2 == 1 and t > 14.5 and not light:
-            add(drums, clap(), t, gain=0.22, pan=0.1)
+            add(drums, clap(), t, gain=0.12, pan=0.1)
         if not light:
-            add(drums, hat(), t + BEAT / 2, gain=0.18, pan=0.3)
+            add(drums, hat(), t + BEAT / 2, gain=0.07, pan=0.3)
             if b % 8 == 7:
-                add(drums, hat(True), t + BEAT / 2, gain=0.15, pan=-0.3)
+                pass
 
     # 断点：stop → 第二次 hit 之间整体静音，制造“停顿”
     fade_n = int(0.25 * SR)
