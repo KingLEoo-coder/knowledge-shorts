@@ -2,3 +2,5 @@
 *.mp4
 *.mov
 *.webm
+.DS_Store
+node_modules/
